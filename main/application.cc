@@ -477,10 +477,10 @@ void Application::InitializeProtocol() {
 
     display->SetStatus(Lang::Strings::LOADING_PROTOCOL);
 
-    if (ota_->HasMqttConfig()) {
-        protocol_ = std::make_unique<MqttProtocol>();
-    } else if (ota_->HasWebsocketConfig()) {
+    if (ota_->HasWebsocketConfig()) {
         protocol_ = std::make_unique<WebsocketProtocol>();
+    } else if (ota_->HasMqttConfig()) {
+        protocol_ = std::make_unique<MqttProtocol>();
     } else {
         ESP_LOGW(TAG, "No protocol specified in the OTA config, using MQTT");
         protocol_ = std::make_unique<MqttProtocol>();
@@ -610,33 +610,36 @@ void Application::InitializeProtocol() {
 }
 
 void Application::ShowActivationCode(const std::string& code, const std::string& message) {
-    struct digit_sound {
-        char digit;
-        const std::string_view& sound;
-    };
-    static const std::array<digit_sound, 10> digit_sounds{{
-        digit_sound{'0', Lang::Sounds::OGG_0},
-        digit_sound{'1', Lang::Sounds::OGG_1}, 
-        digit_sound{'2', Lang::Sounds::OGG_2},
-        digit_sound{'3', Lang::Sounds::OGG_3},
-        digit_sound{'4', Lang::Sounds::OGG_4},
-        digit_sound{'5', Lang::Sounds::OGG_5},
-        digit_sound{'6', Lang::Sounds::OGG_6},
-        digit_sound{'7', Lang::Sounds::OGG_7},
-        digit_sound{'8', Lang::Sounds::OGG_8},
-        digit_sound{'9', Lang::Sounds::OGG_9}
-    }};
+    // struct digit_sound {
+    //     char digit;
+    //     const std::string_view& sound;
+    // };
+    // static const std::array<digit_sound, 10> digit_sounds{{
+    //     digit_sound{'0', Lang::Sounds::OGG_0},
+    //     digit_sound{'1', Lang::Sounds::OGG_1}, 
+    //     digit_sound{'2', Lang::Sounds::OGG_2},
+    //     digit_sound{'3', Lang::Sounds::OGG_3},
+    //     digit_sound{'4', Lang::Sounds::OGG_4},
+    //     digit_sound{'5', Lang::Sounds::OGG_5},
+    //     digit_sound{'6', Lang::Sounds::OGG_6},
+    //     digit_sound{'7', Lang::Sounds::OGG_7},
+    //     digit_sound{'8', Lang::Sounds::OGG_8},
+    //     digit_sound{'9', Lang::Sounds::OGG_9}
+    // }};
 
-    // This sentence uses 9KB of SRAM, so we need to wait for it to finish
-    Alert(Lang::Strings::ACTIVATION, message.c_str(), "link", Lang::Sounds::OGG_ACTIVATION);
+    // // This sentence uses 9KB of SRAM, so we need to wait for it to finish
+    // Alert(Lang::Strings::ACTIVATION, message.c_str(), "link", Lang::Sounds::OGG_ACTIVATION);
 
-    for (const auto& digit : code) {
-        auto it = std::find_if(digit_sounds.begin(), digit_sounds.end(),
-            [digit](const digit_sound& ds) { return ds.digit == digit; });
-        if (it != digit_sounds.end()) {
-            audio_service_.PlaySound(it->sound);
-        }
-    }
+    // for (const auto& digit : code) {
+    //     auto it = std::find_if(digit_sounds.begin(), digit_sounds.end(),
+    //         [digit](const digit_sound& ds) { return ds.digit == digit; });
+    //     if (it != digit_sounds.end()) {
+    //         audio_service_.PlaySound(it->sound);
+    //     }
+    // }
+
+    auto display = Board::GetInstance().GetDisplay();
+    display->SetChatMessage("system", "Please bind and set up in the mobile app.");
 }
 
 void Application::Alert(const char* status, const char* message, const char* emotion, const std::string_view& sound) {

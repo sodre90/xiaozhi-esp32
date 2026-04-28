@@ -164,6 +164,25 @@ esp_err_t Ota::CheckVersion() {
         ESP_LOGI(TAG, "No mqtt section found !");
     }
 
+    has_wifi_config_ = false;
+    cJSON *wifi = cJSON_GetObjectItem(root, "wifi");
+    if (cJSON_IsObject(wifi)) {
+        Settings settings("wifi", true);
+        cJSON *item = NULL;
+        cJSON_ArrayForEach(item, wifi) {
+            if (cJSON_IsString(item)) {
+                if (settings.GetString(item->string) != item->valuestring) {
+                    settings.SetString(item->string, item->valuestring);
+                }
+            } else if (cJSON_IsNumber(item)) {
+                if (settings.GetInt(item->string) != item->valueint) {
+                    settings.SetInt(item->string, item->valueint);
+                }
+            }
+        }
+        has_wifi_config_ = true;
+    }
+
     has_websocket_config_ = false;
     cJSON *websocket = cJSON_GetObjectItem(root, "websocket");
     if (cJSON_IsObject(websocket)) {

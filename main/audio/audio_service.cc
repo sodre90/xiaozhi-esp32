@@ -63,12 +63,15 @@ void AudioService::Initialize(AudioCodec* codec) {
     codec_ = codec;
     codec_->Start();
 
-    esp_opus_dec_cfg_t opus_dec_cfg = OPUS_DEC_CFG(codec->output_sample_rate(), OPUS_FRAME_DURATION_MS);
+    // Initialize decoder at 16kHz (xiaozhi protocol standard) instead of codec output rate.
+    // The output resampler handles conversion to the codec's native rate.
+    // This avoids esp_opus_dec_close/open cycle which causes OPUS_INTERNAL_ERROR (-8).
+    esp_opus_dec_cfg_t opus_dec_cfg = OPUS_DEC_CFG(ESP_AUDIO_SAMPLE_RATE_16K, OPUS_FRAME_DURATION_MS);
     auto ret = esp_opus_dec_open(&opus_dec_cfg, sizeof(esp_opus_dec_cfg_t), &opus_decoder_);
     if (opus_decoder_ == nullptr) {
         ESP_LOGE(TAG, "Failed to create audio decoder, error code: %d", ret);
     } else {
-        decoder_sample_rate_ = codec->output_sample_rate();
+        decoder_sample_rate_ = ESP_AUDIO_SAMPLE_RATE_16K;
         decoder_duration_ms_ = OPUS_FRAME_DURATION_MS;
         decoder_frame_size_ = decoder_sample_rate_ / 1000 * OPUS_FRAME_DURATION_MS;
     }

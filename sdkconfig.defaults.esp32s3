@@ -1,4 +1,14 @@
 
+# Enable device-side AEC for boards with reference input (ES7210 mic array)
+CONFIG_USE_DEVICE_AEC=y
+
+# Use vadnet1_medium VAD model (better than webRTC for AFE)
+CONFIG_SR_VADN_VADNET1_MEDIUM=y
+CONFIG_SR_VADN_WEBRTC=n
+
+# Default language: Hungarian
+CONFIG_LANGUAGE_HU_HU=y
+
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHMODE_QIO=y
 

@@ -255,18 +255,40 @@ void Application::Run() {
                 SystemInfo::PrintHeapStats();
             }
 
-            // Idle listening timeout: go idle after 60s of listening with no TTS activity
+            // Idle listening timeout: after 60s in Listening with no TTS activity,
+            // stop streaming the mic and return to Idle — but KEEP the audio channel
+            // open (see persistent-connection block below) so the server can still
+            // push announcements (e.g. calendar reminders) without a conversation.
             if (GetDeviceState() == kDeviceStateListening) {
                 idle_listen_ticks_++;
                 if (idle_listen_ticks_ >= 60) {
-                    ESP_LOGI(TAG, "Idle listening timeout (60s), closing audio channel");
+                    ESP_LOGI(TAG, "Idle listening timeout (60s), stopping listen (channel stays open)");
                     idle_listen_ticks_ = 0;
                     if (protocol_) {
-                        protocol_->CloseAudioChannel();
+                        protocol_->SendStopListening();
+                        listening_mode_ = kListeningModeManualStop;
+                        SetDeviceState(kDeviceStateIdle);
                     }
                 }
             } else {
                 idle_listen_ticks_ = 0;
+            }
+
+            // Persistent connection: keep the audio channel open while idle so the
+            // server can push spoken announcements at any time. Reopen (throttled to
+            // every 5s) if it ever drops. The device stays Idle — no mic streaming —
+            // and manualStop ensures a server-pushed tts.stop returns us to Idle.
+            if (GetDeviceState() == kDeviceStateIdle && protocol_ &&
+                !protocol_->IsAudioChannelOpened() && (clock_ticks_ % 5 == 0)) {
+                Schedule([this]() {
+                    if (GetDeviceState() != kDeviceStateIdle || protocol_->IsAudioChannelOpened()) {
+                        return;
+                    }
+                    if (protocol_->OpenAudioChannel()) {
+                        listening_mode_ = kListeningModeManualStop;
+                        ESP_LOGI(TAG, "Idle audio channel opened (persistent for push announcements)");
+                    }
+                });
             }
         }
     }

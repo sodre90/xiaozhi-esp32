@@ -249,10 +249,24 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
-        
+
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
+            }
+
+            // Idle listening timeout: go idle after 60s of listening with no TTS activity
+            if (GetDeviceState() == kDeviceStateListening) {
+                idle_listen_ticks_++;
+                if (idle_listen_ticks_ >= 60) {
+                    ESP_LOGI(TAG, "Idle listening timeout (60s), closing audio channel");
+                    idle_listen_ticks_ = 0;
+                    if (protocol_) {
+                        protocol_->CloseAudioChannel();
+                    }
+                }
+            } else {
+                idle_listen_ticks_ = 0;
             }
         }
     }
@@ -709,7 +723,8 @@ void Application::HandleToggleChatEvent() {
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonNone);
     } else if (state == kDeviceStateListening) {
-        protocol_->CloseAudioChannel();
+        protocol_->SendStopListening();
+        SetDeviceState(kDeviceStateIdle);
     }
 }
 

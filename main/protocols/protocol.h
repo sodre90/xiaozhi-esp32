@@ -63,6 +63,10 @@ public:
     void OnConnected(std::function<void()> callback);
     void OnDisconnected(std::function<void()> callback);
 
+    // While reconnecting, connection failures are expected (server may be down or
+    // restarting), so SetError() suppresses the user-facing alert/sound and just logs.
+    void SetReconnecting(bool reconnecting) { reconnecting_ = reconnecting; }
+
     virtual bool Start() = 0;
     virtual bool OpenAudioChannel() = 0;
     virtual void CloseAudioChannel(bool send_goodbye = true) = 0;
@@ -86,6 +90,7 @@ protected:
     int server_sample_rate_ = 24000;
     int server_frame_duration_ = 60;
     bool error_occurred_ = false;
+    bool reconnecting_ = false;  // true while auto-reconnecting; suppresses error alerts
     std::string session_id_;
     std::chrono::time_point<std::chrono::steady_clock> last_incoming_time_;
 

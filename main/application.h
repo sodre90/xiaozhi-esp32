@@ -142,6 +142,8 @@ private:
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     int clock_ticks_ = 0;
     int idle_listen_ticks_ = 0;  // Counts seconds in listening state without TTS activity
+    int reconnect_attempts_ = 0;      // Consecutive failed idle auto-reconnect attempts
+    int reconnect_backoff_ticks_ = 0; // Clock ticks (~seconds) to wait before next attempt
     TaskHandle_t activation_task_handle_ = nullptr;
 
 

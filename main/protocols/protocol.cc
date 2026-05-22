@@ -34,6 +34,12 @@ void Protocol::OnDisconnected(std::function<void()> callback) {
 
 void Protocol::SetError(const std::string& message) {
     error_occurred_ = true;
+    if (reconnecting_) {
+        // Auto-reconnect in progress: a failure here just means the server isn't
+        // back yet. Don't flash an alert / play an error sound on every retry.
+        ESP_LOGW(TAG, "Reconnect attempt failed: %s", message.c_str());
+        return;
+    }
     if (on_network_error_ != nullptr) {
         on_network_error_(message);
     }

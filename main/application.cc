@@ -274,21 +274,44 @@ void Application::Run() {
                 idle_listen_ticks_ = 0;
             }
 
-            // Persistent connection: keep the audio channel open while idle so the
-            // server can push spoken announcements at any time. Reopen (throttled to
-            // every 5s) if it ever drops. The device stays Idle — no mic streaming —
-            // and manualStop ensures a server-pushed tts.stop returns us to Idle.
+            // Persistent connection with exponential backoff. Keep the audio channel
+            // open while idle so the server can push spoken announcements at any time;
+            // if it ever drops (server restart, Wi-Fi blip) auto-reconnect without any
+            // tap. Failed attempts back off 2,4,8,16,30s and stay silent (no error
+            // alert/sound) so a temporarily-down server doesn't spam the screen. The
+            // device stays Idle — no mic streaming — and manualStop ensures a
+            // server-pushed tts.stop returns us to Idle.
             if (GetDeviceState() == kDeviceStateIdle && protocol_ &&
-                !protocol_->IsAudioChannelOpened() && (clock_ticks_ % 5 == 0)) {
-                Schedule([this]() {
-                    if (GetDeviceState() != kDeviceStateIdle || protocol_->IsAudioChannelOpened()) {
-                        return;
-                    }
-                    if (protocol_->OpenAudioChannel()) {
-                        listening_mode_ = kListeningModeManualStop;
-                        ESP_LOGI(TAG, "Idle audio channel opened (persistent for push announcements)");
-                    }
-                });
+                !protocol_->IsAudioChannelOpened()) {
+                if (reconnect_backoff_ticks_ > 0) {
+                    reconnect_backoff_ticks_--;
+                } else {
+                    Schedule([this]() {
+                        if (GetDeviceState() != kDeviceStateIdle || protocol_->IsAudioChannelOpened()) {
+                            return;
+                        }
+                        protocol_->SetReconnecting(true);
+                        bool ok = protocol_->OpenAudioChannel();
+                        protocol_->SetReconnecting(false);
+                        if (ok) {
+                            listening_mode_ = kListeningModeManualStop;
+                            reconnect_attempts_ = 0;
+                            reconnect_backoff_ticks_ = 0;
+                            ESP_LOGI(TAG, "Auto-reconnect: idle audio channel reopened");
+                        } else {
+                            reconnect_attempts_++;
+                            int delay = 2 << (reconnect_attempts_ > 4 ? 4 : reconnect_attempts_ - 1);
+                            if (delay > 30) delay = 30;
+                            reconnect_backoff_ticks_ = delay;
+                            ESP_LOGW(TAG, "Auto-reconnect failed (attempt %d), retry in %ds",
+                                     reconnect_attempts_, delay);
+                        }
+                    });
+                }
+            } else if (protocol_ && protocol_->IsAudioChannelOpened()) {
+                // Healthy connection — reset backoff so the next drop retries at once.
+                reconnect_attempts_ = 0;
+                reconnect_backoff_ticks_ = 0;
             }
         }
     }

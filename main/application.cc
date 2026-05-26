@@ -768,6 +768,7 @@ void Application::HandleToggleChatEvent() {
     } else if (state == kDeviceStateSpeaking) {
         AbortSpeaking(kAbortReasonNone);
     } else if (state == kDeviceStateListening) {
+        listening_mode_ = kListeningModeManualStop;
         protocol_->SendStopListening();
         SetDeviceState(kDeviceStateIdle);
     }

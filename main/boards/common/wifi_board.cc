@@ -26,6 +26,21 @@ static const char *TAG = "WifiBoard";
 // Connection timeout in seconds
 static constexpr int CONNECT_TIMEOUT_SEC = 60;
 
+// RSSI-based roam trigger. The device's WiFi stack is sticky once associated
+// (no 802.11k/v/r support), so it will keep a weak link instead of leaving for
+// a stronger AP that's now in range. Tunables:
+//   - Threshold of -75 dBm: below this packet loss/retransmits begin to ruin
+//     Opus playback (the original report: voice stutters when stuck on a
+//     distant outdoor AP).
+//   - 3 consecutive weak ticks (15 s sustained) before acting, so brief dips
+//     don't cause a disconnect.
+//   - 60 s cooldown between roam attempts to avoid thrash when no better AP
+//     exists (the rescan will reland on the same AP).
+static constexpr int    kRssiMonitorIntervalMs        = 5000;
+static constexpr int    kRssiWeakThresholdDbm         = -75;
+static constexpr int    kRssiWeakConsecutiveTrigger   = 3;
+static constexpr int64_t kRoamCooldownUs              = 60LL * 1000 * 1000;
+
 WifiBoard::WifiBoard() {
     // Create connection timeout timer
     esp_timer_create_args_t timer_args = {
@@ -36,12 +51,26 @@ WifiBoard::WifiBoard() {
         .skip_unhandled_events = true
     };
     esp_timer_create(&timer_args, &connect_timer_);
+
+    // Periodic RSSI monitor — started on Connected, stopped on Disconnected.
+    esp_timer_create_args_t rssi_args = {
+        .callback = OnRssiMonitorTick,
+        .arg = this,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "wifi_rssi_monitor",
+        .skip_unhandled_events = true
+    };
+    esp_timer_create(&rssi_args, &rssi_monitor_timer_);
 }
 
 WifiBoard::~WifiBoard() {
     if (connect_timer_) {
         esp_timer_stop(connect_timer_);
         esp_timer_delete(connect_timer_);
+    }
+    if (rssi_monitor_timer_) {
+        esp_timer_stop(rssi_monitor_timer_);
+        esp_timer_delete(rssi_monitor_timer_);
     }
 }
 
@@ -114,6 +143,7 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
 #endif
             in_config_mode_ = false;
             ESP_LOGI(TAG, "Connected to WiFi: %s", data.c_str());
+            StartRssiMonitor();
             break;
         case NetworkEvent::Scanning:
             ESP_LOGI(TAG, "WiFi scanning");
@@ -123,6 +153,7 @@ void WifiBoard::OnNetworkEvent(NetworkEvent event, const std::string& data) {
             break;
         case NetworkEvent::Disconnected:
             ESP_LOGW(TAG, "WiFi disconnected");
+            StopRssiMonitor();
             break;
         case NetworkEvent::WifiConfigModeEnter:
             ESP_LOGI(TAG, "WiFi config mode entered");
@@ -354,4 +385,71 @@ std::string WifiBoard::GetDeviceStatusJson() {
     cJSON_free(str);
     cJSON_Delete(root);
     return result;
+}
+
+void WifiBoard::StartRssiMonitor() {
+    weak_rssi_consecutive_count_ = 0;
+    if (rssi_monitor_timer_) {
+        esp_timer_stop(rssi_monitor_timer_);
+        esp_timer_start_periodic(rssi_monitor_timer_,
+                                 (uint64_t)kRssiMonitorIntervalMs * 1000ULL);
+    }
+}
+
+void WifiBoard::StopRssiMonitor() {
+    if (rssi_monitor_timer_) {
+        esp_timer_stop(rssi_monitor_timer_);
+    }
+    weak_rssi_consecutive_count_ = 0;
+}
+
+void WifiBoard::OnRssiMonitorTick(void* arg) {
+    auto* board = static_cast<WifiBoard*>(arg);
+    auto& wifi = WifiManager::GetInstance();
+
+    if (!wifi.IsConnected() || wifi.IsConfigMode()) {
+        board->weak_rssi_consecutive_count_ = 0;
+        return;
+    }
+
+    int rssi = wifi.GetRssi();
+    if (rssi >= kRssiWeakThresholdDbm) {
+        board->weak_rssi_consecutive_count_ = 0;
+        return;
+    }
+
+    board->weak_rssi_consecutive_count_++;
+    ESP_LOGW(TAG, "Weak RSSI %d dBm (%d/%d consecutive) on %s",
+             rssi,
+             board->weak_rssi_consecutive_count_,
+             kRssiWeakConsecutiveTrigger,
+             wifi.GetSsid().c_str());
+
+    if (board->weak_rssi_consecutive_count_ >= kRssiWeakConsecutiveTrigger) {
+        board->TriggerRoam();
+    }
+}
+
+void WifiBoard::TriggerRoam() {
+    int64_t now = esp_timer_get_time();
+    if (last_roam_attempt_us_ != 0 && (now - last_roam_attempt_us_) < kRoamCooldownUs) {
+        // Already roamed recently — likely no better AP available. Reset
+        // the counter so we don't spam the log, and try again after cooldown.
+        weak_rssi_consecutive_count_ = 0;
+        return;
+    }
+    last_roam_attempt_us_ = now;
+    weak_rssi_consecutive_count_ = 0;
+
+    auto& wifi = WifiManager::GetInstance();
+    ESP_LOGW(TAG, "Forcing WiFi roam: current RSSI %d dBm on %s",
+             wifi.GetRssi(), wifi.GetSsid().c_str());
+
+    // StopStation/StartStation is non-blocking. The reconnect path scans all
+    // visible APs and picks the strongest matching SSID (HandleScanResult in
+    // wifi_station.cc sorts by RSSI desc), so if a stronger AP is now in
+    // range the device will land on it. Disconnected/Connected events will
+    // cycle StopRssiMonitor/StartRssiMonitor as a side effect.
+    wifi.StopStation();
+    wifi.StartStation();
 }

@@ -9,6 +9,9 @@
 class WifiBoard : public Board {
 protected:
     esp_timer_handle_t connect_timer_ = nullptr;
+    esp_timer_handle_t rssi_monitor_timer_ = nullptr;
+    int weak_rssi_consecutive_count_ = 0;
+    int64_t last_roam_attempt_us_ = 0;
     bool in_config_mode_ = false;
     NetworkEventCallback network_event_callback_ = nullptr;
 
@@ -35,6 +38,19 @@ protected:
      * WiFi connection timeout callback
      */
     static void OnWifiConnectTimeout(void* arg);
+
+    /**
+     * Periodic RSSI-based roam trigger. Runs every kRssiMonitorIntervalMs while
+     * connected. If RSSI stays at/below kRssiWeakThresholdDbm for
+     * kRssiWeakConsecutiveTrigger ticks, forces a Stop+Start of the station so
+     * the connect path can rescan and pick a stronger AP (HandleScanResult
+     * already sorts by RSSI desc). kRoamCooldownSec prevents thrash if no
+     * better AP exists.
+     */
+    static void OnRssiMonitorTick(void* arg);
+    void StartRssiMonitor();
+    void StopRssiMonitor();
+    void TriggerRoam();
 
 public:
     WifiBoard();

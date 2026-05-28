@@ -80,6 +80,9 @@ bool AfeWakeWord::Initialize(AudioCodec* codec, srmodel_list_t* models_list) {
     afe_iface_ = esp_afe_handle_from_config(afe_config);
     afe_data_ = afe_iface_->create_from_config(afe_config);
 
+    // Lower wake word detection threshold for better sensitivity (default ~0.585)
+    afe_iface_->set_wakenet_threshold(afe_data_, 1, 0.4);
+
     xTaskCreate([](void* arg) {
         auto this_ = (AfeWakeWord*)arg;
         this_->AudioDetectionTask();
@@ -138,12 +141,19 @@ void AfeWakeWord::AudioDetectionTask() {
     ESP_LOGI(TAG, "Audio detection task started, feed size: %d fetch size: %d",
         feed_size, fetch_size);
 
+    int fetch_count = 0;
     while (true) {
         xEventGroupWaitBits(event_group_, DETECTION_RUNNING_EVENT, pdFALSE, pdTRUE, portMAX_DELAY);
 
         auto res = afe_iface_->fetch_with_delay(afe_data_, portMAX_DELAY);
         if (res == nullptr || res->ret_value == ESP_FAIL) {
             continue;;
+        }
+
+        fetch_count++;
+        if (fetch_count % 33 == 1) {
+            ESP_LOGI(TAG, "WW: fetch=%d vad=%d vol=%.1fdB wake=%d rbuf=%.0f%%",
+                fetch_count, res->vad_state, res->data_volume, res->wakeup_state, res->ringbuff_free_pct * 100);
         }
 
         // Store the wake word data for voice recognition, like who is speaking

@@ -850,8 +850,8 @@ void Application::HandleWakeWordDetectedEvent() {
         audio_service_.EncodeWakeWord();
         auto wake_word = audio_service_.GetLastWakeWord();
 
+        SetDeviceState(kDeviceStateConnecting);
         if (!protocol_->IsAudioChannelOpened()) {
-            SetDeviceState(kDeviceStateConnecting);
             // Schedule to let the state change be processed first (UI update),
             // then continue with OpenAudioChannel which may block for ~1 second
             Schedule([this, wake_word]() {

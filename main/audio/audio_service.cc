@@ -309,6 +309,13 @@ void AudioService::AudioOutputTask() {
             codec_->EnableOutput(true);
         }
 
+        // Fire the chat-text callback as this sentence's audio reaches the
+        // speaker, so the bubble advances in step with the voice rather than
+        // racing ahead when the (faster-than-realtime) stream arrived.
+        if (!task->text.empty() && callbacks_.on_playback_text) {
+            callbacks_.on_playback_text(task->text);
+        }
+
         codec_->OutputData(task->pcm);
 
         /* Update the last output time */
@@ -349,6 +356,7 @@ void AudioService::OpusCodecTask() {
             auto task = std::make_unique<AudioTask>();
             task->type = kAudioTaskTypeDecodeToPlaybackQueue;
             task->timestamp = packet->timestamp;
+            task->text = std::move(packet->text);
 
             SetDecodeSampleRate(packet->sample_rate, packet->frame_duration);
             if (opus_decoder_ != nullptr) {

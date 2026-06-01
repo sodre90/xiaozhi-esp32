@@ -80,6 +80,7 @@ struct AudioServiceCallbacks {
     std::function<void(const std::string&)> on_wake_word_detected;
     std::function<void(bool)> on_vad_change;
     std::function<void(void)> on_audio_testing_queue_full;
+    std::function<void(const std::string&)> on_playback_text;  // sentence text reached playback
 };
 
 
@@ -93,6 +94,7 @@ struct AudioTask {
     AudioTaskType type;
     std::vector<int16_t> pcm;
     uint32_t timestamp;
+    std::string text;  // carried from the packet; fires on_playback_text when played
 };
 
 struct DebugStatistics {

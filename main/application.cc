@@ -83,6 +83,11 @@ void Application::Initialize() {
     callbacks.on_vad_change = [this](bool speaking) {
         xEventGroupSetBits(event_group_, MAIN_EVENT_VAD_CHANGE);
     };
+    callbacks.on_playback_text = [this](const std::string& text) {
+        Schedule([message = text]() {
+            Board::GetInstance().GetDisplay()->SetChatMessage("assistant", message.c_str());
+        });
+    };
     audio_service_.SetCallbacks(callbacks);
 
     // Add state change listeners
@@ -255,14 +260,14 @@ void Application::Run() {
                 SystemInfo::PrintHeapStats();
             }
 
-            // Idle listening timeout: after 60s in Listening with no TTS activity,
+            // Idle listening timeout: after 15s in Listening with no TTS activity,
             // stop streaming the mic and return to Idle — but KEEP the audio channel
             // open (see persistent-connection block below) so the server can still
             // push announcements (e.g. calendar reminders) without a conversation.
             if (GetDeviceState() == kDeviceStateListening) {
                 idle_listen_ticks_++;
-                if (idle_listen_ticks_ >= 60) {
-                    ESP_LOGI(TAG, "Idle listening timeout (60s), stopping listen (channel stays open)");
+                if (idle_listen_ticks_ >= 15) {
+                    ESP_LOGI(TAG, "Idle listening timeout (15s), stopping listen (channel stays open)");
                     idle_listen_ticks_ = 0;
                     if (protocol_) {
                         protocol_->SendStopListening();
@@ -555,7 +560,18 @@ void Application::InitializeProtocol() {
     });
     
     protocol_->OnIncomingAudio([this](std::unique_ptr<AudioStreamPacket> packet) {
-        if (GetDeviceState() == kDeviceStateSpeaking) {
+        // Tag the first packet after a sentence_start with its text, so the
+        // bubble updates when this audio plays out (in sync with the voice).
+        if (!pending_sentence_text_.empty()) {
+            packet->text = std::move(pending_sentence_text_);
+            pending_sentence_text_.clear();
+        }
+        // Note: the state check uses kDeviceStateListening as a fallback because
+        // tts.start sets kDeviceStateSpeaking via Schedule() (deferred), but audio
+        // frames can arrive on this callback before the schedule runs. The server
+        // only sends audio during a valid session so accepting it is safe.
+        auto state = GetDeviceState();
+        if (state == kDeviceStateSpeaking || state == kDeviceStateListening) {
             audio_service_.PushPacketToDecodeQueue(std::move(packet));
         }
     });
@@ -601,9 +617,11 @@ void Application::InitializeProtocol() {
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
-                    Schedule([display, message = std::string(text->valuestring)]() {
-                        display->SetChatMessage("assistant", message.c_str());
-                    });
+                    // Don't display yet: ride the text along the audio queue so it
+                    // shows when this sentence's audio actually plays (the stream
+                    // arrives far faster than realtime). Attached to the next
+                    // incoming audio packet below; same protocol thread, so no lock.
+                    pending_sentence_text_ = text->valuestring;
                 }
             }
         } else if (strcmp(type->valuestring, "stt") == 0) {

@@ -133,6 +133,9 @@ private:
     ListeningMode listening_mode_ = kListeningModeAutoStop;
     AecMode aec_mode_ = kAecOff;
     std::string last_error_message_;
+    // Text from the latest sentence_start, held until the next audio packet so the
+    // bubble updates when that sentence plays out rather than on JSON arrival.
+    std::string pending_sentence_text_;
     AudioService audio_service_;
     std::unique_ptr<Ota> ota_;
 

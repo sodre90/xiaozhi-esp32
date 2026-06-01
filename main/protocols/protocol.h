@@ -12,6 +12,9 @@ struct AudioStreamPacket {
     int frame_duration = 0;
     uint32_t timestamp = 0;
     std::vector<uint8_t> payload;
+    // Optional chat text to display when this packet reaches playback. Set on the
+    // first packet of a sentence so the bubble advances in sync with the voice.
+    std::string text;
 };
 
 struct BinaryProtocol2 {
